@@ -28,6 +28,12 @@ import sample.lyon.things.pithingsbluetooth.Bluetooth.BluetoothTool;
 import sample.lyon.things.pithingsbluetooth.Volume.VolumeChangeObserver;
 import sample.lyon.things.pithingsbluetooth.Volume.VolumeDialog;
 
+import static android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO;
+import static android.bluetooth.BluetoothClass.Device.Major.COMPUTER;
+import static android.bluetooth.BluetoothClass.Device.Major.MISC;
+import static android.bluetooth.BluetoothClass.Device.Major.NETWORKING;
+import static android.bluetooth.BluetoothClass.Device.Major.PHONE;
+
 /**
  * Skeleton of an Android Things activity.
  * <p>
@@ -49,6 +55,7 @@ import sample.lyon.things.pithingsbluetooth.Volume.VolumeDialog;
  */
 public class MainActivity extends Activity implements VolumeChangeObserver.VolumeChangeListener {
     String TAG = MainActivity.class.getName();
+    public static String EXTRA_DEVICE_ADDRESS = "device_address";
     BluetoothTool bluetoothTool;
     TextView BluetoothDeviceName;
     TextView version;
@@ -62,7 +69,6 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
     TextView opentime;
     final int OPENBLUETOOTH = 0;
     final int REQUEST_ENABLE_BT = 100;
-    HashMap<String, String> bluetoothDeviceName2 = new HashMap<>();
     private VolumeChangeObserver mVolumeChangeObserver;
     VolumeDialog volumeDialog;
     @Override
@@ -126,7 +132,9 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
             }
         };
         version = (TextView) findViewById(R.id.version);
-        version.setText(Build.MODEL + getVersion());
+
+        String bluetoothType = bluetoothTool.getBlueToothType(bluetoothTool.getBluetoothClass());
+        version.setText(Build.MODEL + getVersion() +bluetoothType);
         BluetoothDeviceName = (TextView) findViewById(R.id.bluetoothDeviceName);
         String blueDate = "bluetooth Name:" + bluetoothTool.getBluetoothName("Lyon Pi3_" + Build.MODEL) + ",   Mac:" + bluetoothTool.getBluetoothMac();
         BluetoothDeviceName.setText(blueDate);
@@ -141,6 +149,24 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
                 Log.d(TAG, "BluetoothDevice bluetoothDeviceListView [" + position + "] is click!");
 
+            }
+        });
+
+        haveConnectBluetoothListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                try {
+                    Log.d(TAG, "Have connect BluetoothDevice bluetoothDeviceListView [" + position + "] is click!");
+                    String name[] = connectBluetoothDevice.get(position).split(",");
+                    Log.d(TAG, "Have connect name : " + name[0] + "address:" + name[1] + " is click!");
+                    bluetoothTool.getBluetoothAdapter().cancelDiscovery();
+                    Intent intent = new Intent();
+                    intent.putExtra(EXTRA_DEVICE_ADDRESS, name[1]);
+                    // Set result and finish this Activity
+                    setResult(Activity.RESULT_OK, intent);
+                }catch (Exception e){
+                    Log.e(TAG,"Have connect onItemClick Exception:"+e);
+                }
             }
         });
         reSearch = (Button) findViewById(R.id.reSearch);
@@ -180,16 +206,15 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
         mVolumeChangeObserver.unregisterReceiver();
     }
 
-    private void searchOldBluetoothdevice() {
+    public void searchOldBluetoothdevice() {
         connectBluetoothDevice.clear();
         int i = 0;
         Set<BluetoothDevice> pairedDevices = bluetoothTool.getBluetoothAdapter().getBondedDevices();
-        bluetoothDeviceName2 = new HashMap<>();
-        for (BluetoothDevice bt : pairedDevices)
-            bluetoothDeviceName2.put(bt.getAddress(), bt.getName());
-
-        for (Map.Entry<String, String> entry : bluetoothDeviceName2.entrySet()) {
-            connectBluetoothDevice.add("[" + i + "]:" + entry.getValue() + ", " + entry.getKey());
+        // https://blog.csdn.net/jasonwang18/article/details/70210319
+        for (BluetoothDevice bt : pairedDevices) {
+            int classint = bt.getBluetoothClass().getMajorDeviceClass();
+            String type=bluetoothTool.getBlueToothType(classint);
+            connectBluetoothDevice.add("[" + i + "]:" + bt.getName()+"("+type + "), " + bt.getAddress());
             i++;
         }
         connectAdapterlist.notifyDataSetChanged();
@@ -225,9 +250,9 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        Log.d(TAG, "BluetoothTool requestCode:" + requestCode + " resultCode:" + resultCode);
+        Log.d(TAG, "onActivityResult requestCode:" + requestCode + " resultCode:" + resultCode);
         if (requestCode == REQUEST_ENABLE_BT) {
-            Log.d(TAG, "BluetoothTool requestCode:" + requestCode);
+            Log.d(TAG, "BluetoothTool Enable requestCode:" + requestCode);
         }
     }
 
