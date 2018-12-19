@@ -4,6 +4,7 @@ import android.app.Dialog;
 import android.content.Context;
 import android.media.AudioManager;
 import android.os.Handler;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,6 +19,7 @@ import org.w3c.dom.Text;
 import sample.lyon.things.pithingsbluetooth.R;
 
 public class VolumeDialog implements OnSeekBarChangeListener, OnKeyListener {
+    String TAG =VolumeDialog.class.getName();
     private Dialog dialog;
     private View view;
     private SeekBar sb_music;
@@ -42,32 +44,36 @@ public class VolumeDialog implements OnSeekBarChangeListener, OnKeyListener {
     }
 
     public void show() {
-        if(isShow)
-            return;
-        dialog.getWindow().setContentView(view);
-        dialog.getWindow().setLayout(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
-        isShow=true;
-        dialog.show();
-        sb_music.setFocusable(true);
-        sb_music.setFocusableInTouchMode(true);
-        sb_music.setOnKeyListener(this);
+        try {
+            if (isShow)
+                return;
+            dialog.getWindow().setContentView(view);
+            dialog.getWindow().setLayout(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+            isShow = true;
+            dialog.show();
+            sb_music.setFocusable(true);
+            sb_music.setFocusableInTouchMode(true);
+            sb_music.setOnKeyListener(this);
 
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                int i=0;
-                while (i<2){
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    int i = 0;
+                    while (i < 2) {
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                        i++;
                     }
-                    i++;
+                    isShow = false;
+                    dismiss();
                 }
-                isShow=false;
-                dismiss();
-            }
-        }).start();
+            }).start();
+        }catch (Exception e){
+            Log.e(TAG,""+e);
+        }
     }
 
     public void setVolume(int volume){

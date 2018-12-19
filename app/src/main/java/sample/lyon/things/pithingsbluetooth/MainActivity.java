@@ -1,5 +1,6 @@
 package sample.lyon.things.pithingsbluetooth;
 
+import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
@@ -10,6 +11,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
@@ -17,6 +19,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -61,20 +64,34 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
     TextView version;
     ListView searchbluetoothDeviceListView;
     ListView haveConnectBluetoothListView;
-    List<String> searchBluetoothDevice;
     ArrayAdapter searchAdapterlist;
     ArrayAdapter connectAdapterlist;
+    List<String> searchBluetoothDevice;
     List<String> connectBluetoothDevice;
+    List<BluetoothDevice> connectBluetoothDeviceD;
+    List<BluetoothDevice> searchBluetoothDeviceD;
     Button reSearch;
     TextView opentime;
     final int OPENBLUETOOTH = 0;
     final int REQUEST_ENABLE_BT = 100;
     private VolumeChangeObserver mVolumeChangeObserver;
     VolumeDialog volumeDialog;
+    private static final int REQUEST_CODE = 2; // 请求码
+    public static int OVERLAY_PERMISSION_REQ_CODE = 1234;
+    // 所需的全部权限
+    static final String[] PERMISSIONS = new String[]{
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION
+    };
+    private PermissionsChecker mPermissionsChecker; // 权限检测器
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
+        mPermissionsChecker = new PermissionsChecker(this);
+        if (mPermissionsChecker.lacksPermissions(PERMISSIONS)) {
+            startPermissionsActivity();
+            Log.d(TAG,"20170601 versionCode:");
+        }
         volumeDialog= new VolumeDialog(MainActivity.this,AudioManager.STREAM_SYSTEM);
         //实例化对象并设置监听器
         mVolumeChangeObserver = new VolumeChangeObserver(this){
@@ -90,6 +107,8 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
         setContentView(R.layout.activity_main);
         searchBluetoothDevice = new ArrayList<>();
         connectBluetoothDevice = new ArrayList<>();
+        connectBluetoothDeviceD = new ArrayList<>();
+        searchBluetoothDeviceD = new ArrayList<>();
         searchAdapterlist = new ArrayAdapter(this,
                 android.R.layout.simple_list_item_1,
                 searchBluetoothDevice);
@@ -99,11 +118,13 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
         opentime = (TextView) findViewById(R.id.openTime);
         bluetoothTool = new BluetoothTool(this) {
             @Override
-            public void getBluetoothDeviceName(HashMap<String, String> bluetoothDeviceName) {
+            public void getBluetoothDeviceName(HashMap<String, String> bluetoothDeviceName,BluetoothDevice device) {
                 searchBluetoothDevice.clear();
+                searchBluetoothDeviceD.clear();
                 int i = 0;
                 for (Map.Entry<String, String> entry : bluetoothDeviceName.entrySet()) {
                     searchBluetoothDevice.add("[" + i + "]:" + entry.getValue() + ", " + entry.getKey());
+                    searchBluetoothDeviceD.add(device);
                     i++;
                 }
                 searchAdapterlist.notifyDataSetChanged();
@@ -140,6 +161,8 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
         BluetoothDeviceName.setText(blueDate);
         searchbluetoothDeviceListView = (ListView) findViewById(R.id.searchbluetoothDeviceListView);
         haveConnectBluetoothListView = (ListView) findViewById(R.id.haveConnectBluetoothListView);
+        searchbluetoothDeviceListView.setSelector(getDrawable(R.drawable.btn_light_blue));
+        haveConnectBluetoothListView.setSelector(getDrawable(R.drawable.btn_light_blue));
         searchbluetoothDeviceListView.setAdapter(searchAdapterlist);
         haveConnectBluetoothListView.setAdapter(connectAdapterlist);
         bluetoothTool.findBuletoothDevice();
@@ -148,6 +171,18 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
                 Log.d(TAG, "BluetoothDevice bluetoothDeviceListView [" + position + "] is click!");
+                try {
+                    Log.d(TAG, "Have Connect BluetoothDevice bluetoothDeviceListView [" + position + "] is click!");
+                    String name[] = searchBluetoothDevice.get(position).split(",");
+                    String deviceName=name[0];
+                    String address=name[1].replace(" ","");
+                    Log.d(TAG, "Have Connect name : " + deviceName + "address:" + address + " is click!");
+                    bluetoothTool.stopSearthBltDevice();
+                    BluetoothDevice device = connectBluetoothDeviceD.get(position);//bluetoothTool.getBluetoothAdapter().getRemoteDevice(name[1]);
+                    bluetoothTool.connectDevice(device);
+                }catch (Exception e){
+                    Log.e(TAG,"Have Connect onItemClick Exception:"+e);
+                }
 
             }
         });
@@ -156,16 +191,16 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
                 try {
-                    Log.d(TAG, "Have connect BluetoothDevice bluetoothDeviceListView [" + position + "] is click!");
+                    Log.d(TAG, "Have Connect BluetoothDevice bluetoothDeviceListView [" + position + "] is click!");
                     String name[] = connectBluetoothDevice.get(position).split(",");
-                    Log.d(TAG, "Have connect name : " + name[0] + "address:" + name[1] + " is click!");
-                    bluetoothTool.getBluetoothAdapter().cancelDiscovery();
-                    Intent intent = new Intent();
-                    intent.putExtra(EXTRA_DEVICE_ADDRESS, name[1]);
-                    // Set result and finish this Activity
-                    setResult(Activity.RESULT_OK, intent);
+                    String deviceName=name[0];
+                    String address=name[1].replace(" ","");
+                    Log.d(TAG, "Have Connect name : " + deviceName + "address:" + address + " is click!");
+                    bluetoothTool.stopSearthBltDevice();
+                    BluetoothDevice device = connectBluetoothDeviceD.get(position);//bluetoothTool.getBluetoothAdapter().getRemoteDevice(name[1]);
+                    bluetoothTool.connectDevice(device);
                 }catch (Exception e){
-                    Log.e(TAG,"Have connect onItemClick Exception:"+e);
+                    Log.e(TAG,"Have Connect onItemClick Exception:"+e);
                 }
             }
         });
@@ -208,6 +243,7 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
 
     public void searchOldBluetoothdevice() {
         connectBluetoothDevice.clear();
+        connectBluetoothDeviceD.clear();
         int i = 0;
         Set<BluetoothDevice> pairedDevices = bluetoothTool.getBluetoothAdapter().getBondedDevices();
         // https://blog.csdn.net/jasonwang18/article/details/70210319
@@ -215,6 +251,7 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
             int classint = bt.getBluetoothClass().getMajorDeviceClass();
             String type=bluetoothTool.getBlueToothType(classint);
             connectBluetoothDevice.add("[" + i + "]:" + bt.getName()+"("+type + "), " + bt.getAddress());
+            connectBluetoothDeviceD.add(bt);
             i++;
         }
         connectAdapterlist.notifyDataSetChanged();
@@ -254,6 +291,17 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
         if (requestCode == REQUEST_ENABLE_BT) {
             Log.d(TAG, "BluetoothTool Enable requestCode:" + requestCode);
         }
+        // 拒绝时, 关闭页面, 缺少主要权限, 无法运行
+        if (requestCode == OVERLAY_PERMISSION_REQ_CODE) {
+            if (!Settings.canDrawOverlays(this)) {
+                // SYSTEM_ALERT_WINDOW permission not granted...
+                Toast.makeText(this, "Permission Denieddd by user.Please Check it in Settings", Toast.LENGTH_SHORT).show();
+                finish();
+            }
+        }else if (requestCode == REQUEST_CODE && resultCode == PermissionsActivity.PERMISSIONS_DENIED) {
+            Toast.makeText(getBaseContext(),"I am GG!!",Toast.LENGTH_SHORT).show();
+            finish();
+        }
     }
 
     @Override
@@ -265,6 +313,10 @@ public class MainActivity extends Activity implements VolumeChangeObserver.Volum
     public void showVolumeDialog(int volume){
         volumeDialog.setVolume(volume);
         volumeDialog.show();
+    }
+
+    private void startPermissionsActivity() {
+        PermissionsActivity.startActivityForResult(this, REQUEST_CODE, PERMISSIONS);
     }
 
 

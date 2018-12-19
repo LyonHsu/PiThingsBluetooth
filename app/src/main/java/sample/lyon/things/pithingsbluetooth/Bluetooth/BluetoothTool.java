@@ -18,10 +18,13 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.google.android.things.bluetooth.BluetoothClassFactory;
 import com.google.android.things.bluetooth.BluetoothConfigManager;
 
 import java.io.IOException;
@@ -35,8 +38,10 @@ import java.util.UUID;
 import sample.lyon.things.pithingsbluetooth.AppController;
 import sample.lyon.things.pithingsbluetooth.Device.GetMacAddress;
 import sample.lyon.things.pithingsbluetooth.MainActivity;
+import sample.lyon.things.pithingsbluetooth.Utils;
 
 import static android.bluetooth.BluetoothClass.Device.Major.*;
+import static sample.lyon.things.pithingsbluetooth.Bluetooth.A2dpSinkHelper.ACTION_CONNECTION_STATE_CHANGED;
 
 
 /*
@@ -65,16 +70,28 @@ public abstract class BluetoothTool {
     final int openBluetoothTime=30;
     Boolean isSearchNow=false;
     int time =openBluetoothTime;
-    BluetoothConnect bluetoothConnect;
 
+    private BluetoothService mService = null;
+    String mConnectedDeviceName="";
     public BluetoothTool(Context context) {
         this.context = context;
-        bluetoothConnect = new BluetoothConnect();
 
 //        setBluetoothType();
 
         //首先获取BluetoothManager
         BluetoothManager bluetoothManager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+        //設定為藍芽音響設備
+        try {
+            BluetoothConfigManager manager = BluetoothConfigManager.getInstance();
+            BluetoothClass deviceClass = BluetoothClassFactory.build(
+                    BluetoothClass.Service.AUDIO,
+                    BluetoothClass.Device.AUDIO_VIDEO_LOUDSPEAKER);
+            manager.setBluetoothClass(deviceClass);
+        }catch (Exception e){
+            String[] infos = Utils.getAutoJumpLogInfos();
+            String error = Utils.FormatStackTrace(e);
+            Log.e(TAG,"BluetoothConfigManager set AUDIO Exception:"+error);
+        }
         if (bluetoothManager != null) {
             mBluetoothAdapter = bluetoothManager.getAdapter();
             mBluetoothAdapter.getState();
@@ -99,9 +116,17 @@ public abstract class BluetoothTool {
                 }
             }
         };
-
-
+        mService = new BluetoothService(context, serviceHandler);
+        if (mService != null) {
+            // Only if the state is STATE_NONE, do we know that we haven't started already
+            if (mService.getState() == BluetoothService.STATE_NONE) {
+                // Start the Bluetooth chat services
+                mService.start();
+            }
+        }
     }
+
+
 
     public String getBluetoothName(String bluetoothName){
         if(mBluetoothAdapter==null)
@@ -166,26 +191,37 @@ public abstract class BluetoothTool {
         intentFilter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
         intentFilter.addAction(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED);
         intentFilter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
-// 注册广播接收器，接收并处理搜索结果
+        intentFilter.addAction(A2dpSinkHelper.ACTION_CONNECTION_STATE_CHANGED);
+        intentFilter.addAction(A2dpSinkHelper.ACTION_PLAYING_STATE_CHANGED);
         context.registerReceiver(receiver, intentFilter);
 // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
         mBluetoothAdapter.startDiscovery();
         mScanning = true;
         bluetoothDeviceName=new HashMap<>();
         Log.d(TAG,"findBuletoothDevice 经典蓝牙");
-        getBluetoothDeviceName(bluetoothDeviceName);
-
-
-        //低功耗蓝牙
+//        //低功耗蓝牙
         Log.d(TAG,"findBuletoothDevice 低功耗蓝牙");
         BluetoothLeScanner mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
         mBluetoothLeScanner.startScan(scanCallback);
+        //Bluetooth low energy
+        mBluetoothAdapter.startLeScan(mLeScanCallback);
+
+    }
+
+    public boolean stopSearthBltDevice() {
+        BluetoothLeScanner mBluetoothLeScanner = mBluetoothAdapter.getBluetoothLeScanner();
+        mBluetoothLeScanner.stopScan(scanCallback);
+        mBluetoothAdapter.stopLeScan(mLeScanCallback);
+        //暂停搜索设备
+        if(mBluetoothAdapter!=null)
+            return mBluetoothAdapter.cancelDiscovery();
+        return false;
     }
 
     public BluetoothAdapter getBluetoothAdapter() {
         return mBluetoothAdapter;
     }
-    public abstract void getBluetoothDeviceName(HashMap<String, String> bluetoothDeviceName);
+    public abstract void getBluetoothDeviceName(HashMap<String, String> bluetoothDeviceName , BluetoothDevice device);
     public abstract void openBluetoothTime(int time);
     public abstract void startBT( Intent intent);
     public void reSearchOldBluetoothdevice(){};
@@ -195,8 +231,8 @@ public abstract class BluetoothTool {
         context.unregisterReceiver(receiver);
         if (mBluetoothAdapter != null)
             mBluetoothAdapter.cancelDiscovery();
-        if(bluetoothConnect!=null){
-            bluetoothConnect.cancel();
+        if(mService!=null){
+            mService.stop();
         }
     }
 
@@ -204,15 +240,15 @@ public abstract class BluetoothTool {
         public void run() {
             if (time>0){
                 time--;
-                Log.d(TAG,"openBluetoothTime:"+time);
-
+//                Log.d(TAG,"openBluetoothTime:"+time);
                 openBluetoothTime(time);
                 mHandler.postDelayed(runnable,1000);
             }else {
                 time=0;
                 openBluetoothTime(time);
                 isSearchNow = false;
-                isDiscovering();
+                if(isDiscovering())
+                    stopSearthBltDevice();
             }
         }
     };
@@ -270,24 +306,23 @@ public abstract class BluetoothTool {
             else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 Log.d(TAG,"the Bluetooth :"+device.getName()+" state is changed");
+                Message msg = serviceHandler.obtainMessage();
+                msg.what=BluetoothService.MESSAGE_STATE_CHANGE;
                 switch (device.getBondState()) {
                     case BluetoothDevice.BOND_BONDING://正在配对
-                        Log.d( TAG,"BluetoothDevice BlueToothTestActivity"+ "正在配对......");
-                        Toast.makeText(context,"正在配对"+device.getName()+"......",Toast.LENGTH_SHORT).show();
-                        AppController.getInstance().speak(" device BONDING ");
+                        mConnectedDeviceName = device.getName();
+                        msg.arg1=BluetoothService.STATE_CONNECTING;
+                        serviceHandler.sendMessage(msg);
                         break;
                     case BluetoothDevice.BOND_BONDED://配对结束
-                        Log.d(TAG,"BluetoothDevice BlueToothTestActivity"+ "完成配对");
-                        Toast.makeText(context,"完成配对 "+device.getName()+"......",Toast.LENGTH_SHORT).show();
-                        AppController.getInstance().speak(" device BONDED finish");
-                        bluetoothConnect(device);
-                        ((MainActivity)context).searchOldBluetoothdevice();
-
+                        mConnectedDeviceName = device.getName();
+                        msg.arg1=BluetoothService.STATE_CONNECTED;
+                        serviceHandler.sendMessage(msg);
                         break;
                     case BluetoothDevice.BOND_NONE://取消配对/未配对
-                        Log.d(TAG,"BluetoothDevice BlueToothTestActivity"+"取消配对");
-                        Toast.makeText(context,"取消配对"+device.getName()+"......",Toast.LENGTH_SHORT).show();
-                        AppController.getInstance().speak(" device BOND cancel ");
+                        mConnectedDeviceName = device.getName();
+                        msg.arg1=BluetoothService.STATE_NONE;
+                        serviceHandler.sendMessage(msg);
                     default:
                         Log.d(TAG,"BluetoothDevice BlueToothTestActivity:"+device.getBondState());
                         Toast.makeText(context,device.getBondState()+" "+device.getName()+"......",Toast.LENGTH_SHORT).show();
@@ -312,7 +347,7 @@ public abstract class BluetoothTool {
                         Toast.makeText(context,"播放狀態改變......暫停",Toast.LENGTH_LONG).show();
                     }
                 }
-            }else  if (intent.getAction().equals(A2dpSinkHelper.ACTION_CONNECTION_STATE_CHANGED)) {
+            }else  if (intent.getAction().equals(ACTION_CONNECTION_STATE_CHANGED)) {
                 int oldState = A2dpSinkHelper.getPreviousProfileState(intent);
                 int newState = A2dpSinkHelper.getCurrentProfileState(intent);
                 BluetoothDevice device = A2dpSinkHelper.getDevice(intent);
@@ -321,10 +356,10 @@ public abstract class BluetoothTool {
                 if (device != null) {
                     String deviceName = Objects.toString(device.getName(), "a device");
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        AppController.getInstance().speak("Connected to " + deviceName);
+                        AppController.getInstance().speak("The bluetooth connected to " + deviceName);
                         Toast.makeText(context,"Connected to " + deviceName,Toast.LENGTH_LONG).show();
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                        AppController.getInstance().speak("Disconnected from " + deviceName);
+                        AppController.getInstance().speak("The bluetooth disconnected from " + deviceName);
                         Toast.makeText(context,"Disconnected from " + deviceName,Toast.LENGTH_LONG).show();
                     }
                 }
@@ -334,23 +369,75 @@ public abstract class BluetoothTool {
         }
     };
 
-    private void bluetoothConnect(BluetoothDevice device){
-        try {
-            // 连接
-            bluetoothConnect.connect(device);
-        } catch (IOException e) {
-            e.printStackTrace();
+    private final Handler serviceHandler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case BluetoothService.MESSAGE_STATE_CHANGE:
+                    switch (msg.arg1) {
+                        case BluetoothService.STATE_CONNECTED:
+                            Log.d(TAG,"BluetoothDevice BlueToothTestActivity"+ "完成配对");
+                            Toast.makeText(context,"完成配对 "+mConnectedDeviceName+"......",Toast.LENGTH_SHORT).show();
+                            AppController.getInstance().speak(" device BONDED finish");
+                            ((MainActivity)context).searchOldBluetoothdevice();
+                            stopSearthBltDevice();
+                            break;
+                        case BluetoothService.STATE_CONNECTING:
+                            Log.d( TAG,"BluetoothDevice BlueToothTestActivity"+ "正在配对......");
+                            Toast.makeText(context,"正在配对"+mConnectedDeviceName+"......",Toast.LENGTH_SHORT).show();
+                            AppController.getInstance().speak(" device CONNECTING ");
+                            break;
+                        case BluetoothService.STATE_LISTEN:
+                        case BluetoothService.STATE_NONE:
+                            Toast.makeText(context,"沒有配對藍牙裝置......",Toast.LENGTH_SHORT).show();
+                            AppController.getInstance().speak(" connected fail!");
+                            break;
+                    }
+                    break;
+                case BluetoothService.MESSAGE_WRITE:
+                    byte[] writeBuf = (byte[]) msg.obj;
+                    // construct a string from the buffer
+                    String writeMessage = new String(writeBuf);
+                    Log.d(TAG,"writeMessage:"+writeMessage);
+                    break;
+                case BluetoothService.MESSAGE_READ:
+                    byte[] readBuf = (byte[]) msg.obj;
+                    // construct a string from the valid bytes in the buffer
+                    String readMessage = new String(readBuf, 0, msg.arg1);
+                    Log.d(TAG,"readMessage:"+readMessage);
+                    break;
+                case BluetoothService.MESSAGE_DEVICE_NAME:
+                    // save the connected device's name
+                    mConnectedDeviceName = msg.getData().getString(BluetoothService.DEVICE_NAME);
+                    if (null != context) {
+                        Toast.makeText(context, "Connected to "
+                                + mConnectedDeviceName, Toast.LENGTH_SHORT).show();
+                    }
+                    break;
+                case BluetoothService.MESSAGE_TOAST:
+                    if (null != context) {
+                        Toast.makeText(context, msg.getData().getString(BluetoothService.TOAST),
+                                Toast.LENGTH_SHORT).show();
+                    }
+                    break;
+            }
         }
+    };
+
+    public void connectDevice(BluetoothDevice device ) {
+        // Attempt to connect to the device
+        Log.d(TAG,"connectDevice:"+device.getName());
+        mService.connect(device, true);
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
             super.onScanResult(callbackType, result);
-            Log.i(TAG, "findBuletoothDevice scan succeed device size=  " +result);
+//            Log.i(TAG, "onScanResult findBuletoothDevice scan succeed device size=  " +result);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 BluetoothDevice device = result.getDevice();
-                Log.i(TAG, "findBuletoothDevice scan succeed device ==  " +device);
+//                Log.i(TAG, "findBuletoothDevice scan succeed device ==  " +device);
                 addBluetoothDevice(device);
             }
         }
@@ -358,7 +445,7 @@ public abstract class BluetoothTool {
         @Override
         public void onBatchScanResults(List<ScanResult> results) {
             super.onBatchScanResults(results);
-            Log.i(TAG, "findBuletoothDevice scan succeed device size=  " +results.size());
+//            Log.i(TAG, "onBatchScanResults findBuletoothDevice scan succeed device size=  " +results.size());
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP){
                 for (ScanResult result: results){
                     BluetoothDevice device = result.getDevice();
@@ -375,22 +462,31 @@ public abstract class BluetoothTool {
         }
     };
 
+    private BluetoothAdapter.LeScanCallback mLeScanCallback =
+            new BluetoothAdapter.LeScanCallback() {
+                @Override
+                public void onLeScan(final BluetoothDevice device, int rssi, byte[] scanRecord) {
+                    addBluetoothDevice(device);
+                }
+            };
+
     private void addBluetoothDevice(BluetoothDevice device){
-        Log.d(TAG,"BluetoothDevice 获取查找到的蓝牙设备 :"+device.getName()+":"+device.getAddress()+" mScanning:"+mScanning+ " "+device.getType());
+        Log.d(TAG,"BluetoothDevice 获取查找到的蓝牙设备 :("+getBlueToothType(device.getBluetoothClass().getMajorDeviceClass())+")"+device.getName()+":"+device.getAddress()+" mScanning:"+mScanning+ " type:0x"+device.getBluetoothClass().getMajorDeviceClass());
         int classint = device.getBluetoothClass().getMajorDeviceClass();
         String type=getBlueToothType(classint);
-        if(type.equals("UNCATEGORIZED") || type.equals("Other"))//排除未分類或是 其他的 藍牙設備
+        //排除未分類(UNCATEGORIZED)或是雜項(MISC) 或是其他的(Other) 藍牙設備
+        if(type.equals("UNCATEGORIZED") || type.equals("Other") || type.equals("MISC"))
             return;
         bluetoothDeviceName.put(device.getAddress(),device.getName()+"("+type+")");
         if(bluetoothDeviceName.size()!=bluetoothDeviceNameSize){
             bluetoothDeviceNameSize = bluetoothDeviceName.size();
-            getBluetoothDeviceName(bluetoothDeviceName);
+            getBluetoothDeviceName(bluetoothDeviceName ,device);
         }
     }
 
 
     public String getBlueToothType(int classint){
-        Log.d(TAG,"getBlueToothType type:0x"+Integer.toHexString(classint));
+//        Log.d(TAG,"getBlueToothType type:0x"+Integer.toHexString(classint));
         String type="";
         switch (classint){
             case MISC://0x0000
@@ -426,6 +522,8 @@ public abstract class BluetoothTool {
             case UNCATEGORIZED:// 0x1F00
                 type="UNCATEGORIZED";
                 break;
+            case 2://bluetooth_le
+                type="BLE";
             default:
                 type="Other";
                 break;

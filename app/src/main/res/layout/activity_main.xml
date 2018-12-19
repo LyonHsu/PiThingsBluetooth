@@ -34,7 +34,7 @@
             android:layout_weight="1"
             android:orientation="vertical">
             <TextView
-                android:text="搜尋到的藍芽"
+                android:text="bluetooth Search now"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
             <ListView
@@ -53,7 +53,7 @@
             android:layout_weight="1"
             android:orientation="vertical">
             <TextView
-                android:text="已經連結的藍芽"
+                android:text="Have Connected bluetooth"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
             <ListView

@@ -7,17 +7,11 @@
     // 管理蓝牙设备的权限
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="ndroid.permission.LOCATION_MAC_ADDRESS"/>
-
     //进行蓝牙相关操作
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="com.google.android.things.permission.MANAGE_BLUETOOTH"/>
-
-    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
 
     <application
         android:name=".AppController"
@@ -35,6 +29,12 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".PermissionsActivity"
+            android:theme="@style/AppThemeP34missions"
+            android:screenOrientation="sensorLandscape"
+            />
+        <service android:name=".Bluetooth.BluetoothService" android:enabled="true"/>
     </application>
 
 </manifest>
